@@ -1,0 +1,485 @@
+<html>
+
+<head>
+  <script src="https://cdn.firebase.com/js/client/2.3.1/firebase.js"></script>
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
+
+
+  <!-- Latest compiled and minified CSS -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+  <!-- Optional theme -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css" integrity="sha384-aUGj/X2zp5rLCbBxumKTCw2Z50WgIr1vs/PFN4praOTvYXWlVyh2UtNUU0KAUhAX" crossorigin="anonymous">
+  <!-- Latest compiled and minified JavaScript -->
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js" integrity="sha512-K1qjQ+NcF2TYO/eI3M6v8EiNYZfA95pQumfvcVrTHtwQVDG+aHRqLi/ETn2uB+1JqwYqVG3LIvdm9lj6imS/pQ==" crossorigin="anonymous"></script>
+
+  <link href="mainStyle.css" rel="stylesheet">
+
+</head>
+
+<script>
+  //Define constants for nicer autocomplete
+  var C_login = "login";
+  var C_newpatient = "newpatient";
+  var C_viewpatient = "viewpatient";
+  var C_newmedical = "newmedical";
+  var C_mainmenu = "mainmenu";
+  var allPages = [C_mainmenu, C_login, C_newpatient, C_viewpatient, C_newmedical];
+  var db = new Firebase("https://wolffllc.firebaseio.com/"); //TODO insert your own firebase app 
+  var loadingSym = "<span class='glyphicon glyphicon-refresh spinning'></span>";
+  var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file";
+  //ControlerStates
+  var ctrl_CurPage = "";
+  //Global Data
+  var userCred = null
+  var uploadedFilesForMedicalEvent = [];
+
+  function handleAfterJqueryLoads(){
+    changePage(C_login);
+    db.onAuth(authChangeResp);
+    $("#medicalEventsCurrentIllness").on('change','#newMedicalDoc' , function(){ uploadFileMedHistFile(); });
+
+  }
+
+  function handleClientLoad(){
+  console.log("gapi loaded");
+
+  gapi.client.load('drive', 'v2', handleDriveLoaded); // load the google drive api
+
+  if (window.jQuery) {
+    handleAfterJqueryLoads()
+    }
+  else{
+    $(document).ready(function() {
+      handleAfterJqueryLoads()
+    });
+  }
+
+}
+
+  function handleDriveLoaded() {
+    console.log("Drive API loaded");
+
+  }
+
+
+  function changePage(nextpage) {
+    for (var i in allPages) {
+      $('.' + allPages[i]).hide();
+    }
+    $('.' + nextpage).show();
+    ctrl_CurPage = nextpage;
+
+  }
+
+
+
+  function googleLogin() {
+
+    db.authWithOAuthPopup("google", function(error, authData) {
+      if (error) {
+        console.log("Login Failed!", error);
+
+      } else {
+        console.log("Authenticated successfully with payload:", authData);
+        changePage(C_newpatient);
+        userCred = authData;
+        db.child("users").child(userCred.uid).child("googleAuths").push().set(authData);
+        db.child("users").child(userCred.uid).set({
+          email: authData.google.email
+        })
+      }
+    }, {
+      scope: GOOGLE_SCOPES;
+    });
+
+  }
+
+function uploadFileMedHistFile(){
+  console.log("I FOUND DIS" + $("#newMedicalDoc").val() ) ;
+  thefiles=document.getElementById("newMedicalDoc").files;
+  for( i =0 ; i <thefiles.length ; i++ ){
+  theFile=thefiles[i];
+  //TODO validate this is an acceptable file.
+
+  sizeinmb =parseFloat(theFile.size/1000000).toFixed(2)
+  lastAddedElement=$("#uploadingfiles > ul").append("<li> "+theFile.name+" ( "+sizeinmb+" MB ) "+ loadingSym+" </li>");
+
+  insertFileInApplicationDataFolder(theFile,function(result){ afterMedUpload(result,lastAddedElement);});
+}
+
+}
+function afterMedUpload(result, uiAncor){
+  //TODO save in a list of files
+  //TODO reset the upload element. So another files can be
+  //TODO Add to DB
+   db.child("users").child(userCred.uid).child("driveFiles").push().set(result);
+   uiAncor.find(".glyphicon.spinning").hide();
+   uploadedFilesForMedicalEvent = uploadedFilesForMedicalEvent.concat([result]);
+   $("#newMedicalDoc").val('');
+
+
+}
+
+function uploadedFilesForMedicalEvent(){
+  //TODO remove all data from  $("#newMedicalDoc")  and get a new eventID
+}
+  /**
+ * Insert new file in the Application Data folder.
+ *
+ * @param {File} fileData File object to read data from.
+ * @param {Function} callback Function to call when the request is complete.
+ */
+function insertFileInApplicationDataFolder(fileData, callback) {
+  const boundary = '-------314159265358979323846';
+  const delimiter = "\r\n--" + boundary + "\r\n";
+  const close_delim = "\r\n--" + boundary + "--";
+
+  var reader = new FileReader();
+  reader.readAsBinaryString(fileData);
+  reader.onload = function(e) {
+    var contentType = fileData.type || 'application/octet-stream';
+    var metadata = {
+      'title': fileData.fileName,
+      'mimeType': contentType,
+      'parents': [{'id': 'appfolder'}]
+    };
+
+    var base64Data = btoa(reader.result);
+    var multipartRequestBody =
+        delimiter +
+        'Content-Type: application/json\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: ' + contentType + '\r\n' +
+        'Content-Transfer-Encoding: base64\r\n' +
+        '\r\n' +
+        base64Data +
+        close_delim;
+
+    var request = gapi.client.request({
+        'path': '/upload/drive/v2/files',
+        'method': 'POST',
+        'params': {'uploadType': 'multipart'},
+        'headers': {
+          'Content-Type': 'multipart/mixed; boundary="' + boundary + '"'
+        },
+        'body': multipartRequestBody});
+    if (!callback) {
+      callback = function(file) {
+        console.log(file)
+      };
+    }
+    request.execute(callback);
+  }
+}
+
+
+/**
+ * List all files contained in the Application Data folder.
+ *
+ * @param {Function} callback Function to call when the request is complete.
+ */
+function listFilesInApplicationDataFolder(callback) {
+  var retrievePageOfFiles = function(request, result) {
+    request.execute(function(resp) {
+      result = result.concat(resp.items);
+      var nextPageToken = resp.nextPageToken;
+      if (nextPageToken) {
+        request = gapi.client.drive.files.list({
+          'pageToken': nextPageToken
+        });
+        retrievePageOfFiles(request, result);
+      } else {
+        callback(result);
+      }
+    });
+  }
+  var initialRequest = gapi.client.drive.files.list({
+    'q': '\'appfolder\' in parents'
+  });
+  retrievePageOfFiles(initialRequest, []);
+}
+
+  function emailChange(ele) {
+    var curEmail = ele.value
+      //TODO check if email is already in use
+
+  }
+
+//TOOD REMOVE this, we only want google authenticaiton now
+  function newUser() {
+
+    db.createUser({
+      email: document.getElementById("email").value,
+      password: document.getElementById("password").value
+    }, function(error, userData) {
+      if (error) {
+        console.log("Error creating user:", error);
+      } else {
+        console.log("Successfully created user account with uid:", userData.uid);
+        userCred = userData
+
+        db.child("users").child(userData.uid).set({
+          email: document.getElementById("email").value
+        })
+
+
+      }
+    });
+  }
+
+  function authChangeResp(authData) {
+    if (authData) {
+      userCred = authData
+
+      gapi.auth.setToken({
+        access_token: authData.google.accessToken
+      });
+
+      $(".logout").show();
+      $(".login").hide();
+
+    } else {
+      changePage(C_login);
+      $(".logout").hide();
+      $(".login").show();
+    }
+  }
+
+  function logout() {
+    db.unauth();
+  }
+
+//TOOD REMOVE this, we only want google authenticaiton now
+  function login() {
+
+    db.authWithPassword({
+      email: document.getElementById("email").value,
+      password: document.getElementById("password").value
+    }, function(error, userData) {
+      if (error) {
+        console.log("Login Fail", error);
+
+      } else {
+        console.log("Login Success:", userData.uid);
+        changePage(C_newpatient);
+        userCred = authData;
+      }
+    });
+  }
+
+  function insertPatientData() {
+
+    db.child("users").child(userCred.uid).child("patient").child("id").set({
+      firstname: $("#patientdataentry > input[name='firstname']").val(),
+      middlename: $("#patientdataentry > input[name='midddlename']").val(),
+      lastname: $("#patientdataentry > input[name='lastname']").val(),
+      DOB: $("#patientdataentry > input[name='DOB']").val(),
+      streetname: $("#patientdataentry > input[name='streetname']").val(),
+      streetnumber: $("#patientdataentry > input[name='streetnumber']").val(),
+      city: $("#patientdataentry > input[name='city']").val(),
+      zip: $("#patientdataentry > input[name='zip']").val(),
+      phone: $("#patientdataentry > input[name='phone']").val()
+    });
+  }
+
+  function insertMedicalData() {
+    db.child("users").child(userCred.uid).child("patient").child("medical").set({
+      gender: $("#medicaldataentry > input[name='Gender']").val(),
+      diagnosis: $("#medicaldataentry > textarea[name='diagnosis']").val()
+    });
+
+  }
+</script>
+<script src="https://apis.google.com/js/client.js?onload=handleClientLoad"></script>
+
+<body>
+
+  <div class="logout" display="none">
+    <button type="button" onClick="javascript:logout()">Logout</button>
+  </div>
+
+  <div class="login" id="loginbox" display:none>
+    <button type="button" id="googlebutton" onClick="javascript:googleLogin()">Login With Google</button>
+    <form id="userinfo" action="javascript:login()">
+      Email
+      <input type="text" id="email" onchange="javascript:emailChange(this)"> Password
+      <input type="password" id="password">
+      <button type="button" id="registernew" onClick="javascript:newUser()">Register New</button>
+      <input type="submit" id="login" value="Login">
+
+    </form>
+
+  </div>
+
+
+
+  <div class="mainmenu" display:none>
+
+    <button onClick="javascript:changePage(C_newpatient)"> Enter Identification </button>
+    <button onClick="javascript:changePage(C_newpatient)"> Enter Medical </button>
+  </div>
+
+
+
+  <div class="newpatient" display:none>
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+      </div>
+      <div class="row">
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+      </div>
+      <div class="row">
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+      </div>
+      <div class="row">
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+        <div class="col-md-4">.col-md-4</div>
+      </div>
+
+      <form id="patientdataentry" action="javascript:insertPatientData()">
+        <div class="section" name="contacts">
+          <h2>Contact Information</h2>
+          <div class="form-group form-inline">
+            <label for="pinfirstName">First Name</label>
+            <input type="text" name="firstname" class="form-control" id="pinfirstName">
+            <div class="form-group form-inline">
+              <label for="pinMidleName">Middle Name</label>
+              <input type="text" name="middlename" class="form-control" id="pinMidleName">
+            </div>
+            <div class="form-group form-inline">
+              <label for="pinLastName">Last Name</label>
+              <input type="text" name="lastname" class="form-control" id="pinLastName">
+            </div>
+            <div class="form-group form-inline">
+              <label for="pinDOB"> Date of birth</label>
+              <input type="text" class="form-control" id="pinDOB" name="DOB" placeholder="dd,mm,yyyy">
+            </div>
+            <HR>
+            <div class="form-group form-inline">
+              <label for="pinstreetname"> Steet Name </label>
+              <input type="text" class="form-control" name="streetname" id="pinstreetname">
+            </div>
+            <div class="form-group form-inline">
+              <label for="pinstreetnumber"> Street Number </label>
+              <input type="text" class="form-control" name="streetnumber" id="pinstreetnumber">
+            </div>
+            <div class="form-group form-inline">
+              <label for="pincity"> City </label>
+              <input type="text" class="form-control" name="city" id="pincity">
+            </div>
+            <div class="form-group form-inline">
+              <label for="pinzip"> Zip </label>
+              <input type="text" class="form-control" name="zip" id="pinzip">
+            </div>
+            <HR>
+            <div class="form-group form-inline">
+              <label for="pphone"> Phone </label>
+              <input type="text" id="pphone" name="phone">
+            </div>
+
+          </div>
+
+          <div class="section" name="presentstatus">
+            <h2>Present Status</h2>
+            <div class="form-group form-inline">
+              <label> Allergies </label>
+              <input type="text" class="form-control" name="allergies" placeholder="optiats, peanuts, etc...">
+            </div>
+
+            <div class="form-group form-inline">
+              <h3>Well Being Category </h3>
+              <h4> check all that apply</h4>
+
+              <ul class="list-group row">
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat1present"> Category 1 </label>
+                </li>
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat2present"> Category 2 </label>
+                </li>
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat3present"> Category 3 </label>
+                </li>
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat4present"> Category 4 </label>
+                </li>
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat5present"> Category 5 </label>
+                </li>
+                <li class="list-group-item col-xs-6">
+                  <label>
+                    <input type="checkbox" value="cat6present"> Category 6 </label>
+                </li>
+              </ul>
+
+
+            </div>
+            <div class="form-group form-inline">
+              <label>  Comment <textarea class="form-control" rows="5" placeholder="A short personal account of your wellbeing" required></textarea></label>
+            </div>
+
+          </div>
+
+          <input type="submit" value="Submit">
+      </form>
+
+      <div class="section" name="medicalEventsCurrentIllness" id="medicalEventsCurrentIllness">
+      <h2>History of Current Illness</h2>
+      <div class="addMedicalEvent">
+        <form name="onenewmedicalevent">
+            <label> Date <input type="text" class="form-control" name="eventdate" placeholder="dd,mm,yyyy"> </label>
+            <label> Description <textarea class="form-control" rows="5" placeholder="What happend on this day. " required></textarea></label>
+
+
+            <div id="uploadingfiles"><ul></ul></div>
+            <span class="btn btn-default btn-file">
+            <input type="file" size="45" name="medicalDoc" id="newMedicalDoc" >
+          </span>
+
+          <input type="button" id="finishMedicalEvent" onclick="javascript:nextMedicalEvent()"> Add Another Event<input>
+
+        </form>
+
+      </div>
+      </div>
+
+      </div>
+    </div>
+
+
+    <div class="newmedical" display:none>
+      <div class="container">
+        <form id="medicaldataentry" action="javascript:insertMedicalData()">
+          Gender
+          <div align="center">
+            <input type="radio" name="gender" value="male">Male
+            <input type="radio" name="gender" value="female" checked>Female
+            <br>
+          </div>
+          Main Diagnosis
+          <textarea rows="4" cols="50" name="diagnosis">
+            </textare>
+        </form>
+      </div>
+    </div>
+
+
+
+</body>
+
+</html>
