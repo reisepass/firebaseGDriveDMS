@@ -27,7 +27,7 @@
   var allPages = [C_mainmenu, C_login, C_newpatient, C_viewpatient, C_newmedical];
   var db = new Firebase("https://wolffllc.firebaseio.com/"); //TODO insert your own firebase app
   var loadingSym = "<span class='glyphicon glyphicon-refresh spinning'></span>";
-  var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file, https://www.googleapis.com/auth/drive";
+  var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file, https://www.googleapis.com/auth/plus.login";
   var GOOGLE_APP_ID = "wolffllc-1106";
   var yourMD = "dr.wolffllc@gmail.com";
   //ControlerStates
@@ -50,6 +50,7 @@
 
     gapi.client.load('drive', 'v2', handleDriveLoaded); // load the google drive api
     gapi.load('drive-share', handleShareLoaded);
+    gapi.client.load('plus', 'v1', handlePlusLoaded);
 
 
     if (window.jQuery) {
@@ -69,6 +70,20 @@
 
   function handleShareLoaded() {
     shareRef = new gapi.drive.share.ShareClient('GOOGLE_APP_ID');
+  }
+
+  function handlePlusLoaded(){
+    var request = gapi.client.plus.people.get({
+  'userId' : 'me'
+});
+
+request.execute(function(resp) {
+  console.log('ID: ' + resp.id);
+  console.log('Display Name: ' + resp.displayName);
+  console.log('Image URL: ' + resp.image.url);
+  console.log('Profile URL: ' + resp.url);
+});
+
   }
 
   function changePage(nextpage) {
