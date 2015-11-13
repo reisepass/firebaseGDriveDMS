@@ -29,45 +29,46 @@
   var loadingSym = "<span class='glyphicon glyphicon-refresh spinning'></span>";
   var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file, https://www.googleapis.com/auth/drive";
   var GOOGLE_APP_ID = "wolffllc-1106";
-  var yourMD    = "dr.wolffllc@gmail.com";
+  var yourMD = "dr.wolffllc@gmail.com";
   //ControlerStates
   var ctrl_CurPage = "";
   //Global Data
   var userCred = null;
   var shareRef = null;
+  var shareFolderID = null;
   var uploadedFilesForMedicalEvent = [];
 
-  function handleAfterJqueryLoads(){
+  function handleAfterJqueryLoads() {
     changePage(C_login);
     db.onAuth(authChangeResp);
-    $("#medicalEventsCurrentIllness").on('change','#newMedicalDoc' , function(){ uploadFileMedHistFile(); });
+    //  $("#medicalEventsCurrentIllness").on('change','#newMedicalDoc' , function(){ uploadFileMedHistFile(); }); //TODO remove this is old system
 
   }
 
-  function handleClientLoad(){
-  console.log("gapi loaded");
+  function handleClientLoad() {
+    console.log("gapi loaded");
 
-  gapi.client.load('drive', 'v2', handleDriveLoaded); // load the google drive api
-  gapi.load('drive-share', handleShareLoaded);
+    gapi.client.load('drive', 'v2', handleDriveLoaded); // load the google drive api
+    gapi.load('drive-share', handleShareLoaded);
 
 
-  if (window.jQuery) {
-    handleAfterJqueryLoads()
-    }
-  else{
-    $(document).ready(function() {
+    if (window.jQuery) {
       handleAfterJqueryLoads()
-    });
-  }
+    } else {
+      $(document).ready(function() {
+        handleAfterJqueryLoads()
+      });
+    }
 
-}
+  }
 
   function handleDriveLoaded() {
     console.log("Drive API loaded");
 
   }
-  function handleShareLoaded(){
-     shareRef = new gapi.drive.share.ShareClient('GOOGLE_APP_ID');
+
+  function handleShareLoaded() {
+    shareRef = new gapi.drive.share.ShareClient('GOOGLE_APP_ID');
   }
 
   function changePage(nextpage) {
@@ -91,11 +92,14 @@
 
         //Check if first time login
         db.child("users").child(authData.uid).once('value', function(snapshot) {
-            if(snapshot.val() !== null){
-              db.child("users").child(userCred.uid).set({ email: authData.google.email});
-              console.log("This is a new user");
-            }
-          });
+          if (snapshot.val() !== null) {
+            db.child("users").child(userCred.uid).set({
+              email: authData.google.email
+            });
+            console.log("This is a new user");
+            createShareRootFolder();
+          }
+        });
 
         console.log("Authenticated successfully with payload:", authData);
         changePage(C_newpatient);
@@ -109,60 +113,65 @@
 
   }
 
-function uploadFileMedHistFile(){
-  console.log("I FOUND DIS" + $("#newMedicalDoc").val() ) ;
-  thefiles=document.getElementById("newMedicalDoc").files;
-  for( i =0 ; i <thefiles.length ; i++ ){
-  theFile=thefiles[i];
-  //TODO validate this is an acceptable file.
+  function uploadFileMedHistFile() {
+    console.log("I FOUND DIS" + $("#newMedicalDoc").val());
+    thefiles = document.getElementById("newMedicalDoc").files;
+    for (i = 0; i < thefiles.length; i++) {
+      theFile = thefiles[i];
+      //TODO validate this is an acceptable file.
 
-  sizeinmb =parseFloat(theFile.size/1000000).toFixed(2)
-  lastAddedElement=$("#uploadingfiles > ul").append("<li> "+theFile.name+" ( "+sizeinmb+" MB ) "+ loadingSym+" </li>");
+      sizeinmb = parseFloat(theFile.size / 1000000).toFixed(2)
+      lastAddedElement = $("#uploadingfiles > ul").append("<li> " + theFile.name + " ( " + sizeinmb + " MB ) " + loadingSym + " </li>");
 
-  insertFileInApplicationDataFolder(theFile,function(result){ afterMedUpload(result,lastAddedElement);});
-}
+      insertFileInApplicationDataFolder(theFile, function(result) {
+        afterMedUpload(result, lastAddedElement);
+      });
+    }
 
-}
-function afterMedUpload(result, uiAncor){
-  //TODO save in a list of files
-  //TODO reset the upload element. So another files can be
-  //TODO Add to DB
-   db.child("users").child(userCred.uid).child("driveFiles").push().set(result);
-   uiAncor.find(".glyphicon.spinning").hide();
-   uploadedFilesForMedicalEvent = uploadedFilesForMedicalEvent.concat([result]);
-   $("#newMedicalDoc").val('');
+  }
+
+  function afterMedUpload(result, uiAncor) {
+    //TODO save in a list of files
+    //TODO reset the upload element. So another files can be
+    //TODO Add to DB
+    db.child("users").child(userCred.uid).child("driveFiles").push().set(result);
+    uiAncor.find(".glyphicon.spinning").hide();
+    uploadedFilesForMedicalEvent = uploadedFilesForMedicalEvent.concat([result]);
+    $("#newMedicalDoc").val('');
 
 
-}
+  }
 
 
 
-function uploadedFilesForMedicalEvent(){
-  //TODO remove all data from  $("#newMedicalDoc")  and get a new eventID
-}
+  function uploadedFilesForMedicalEvent() {
+    //TODO remove all data from  $("#newMedicalDoc")  and get a new eventID
+  }
   /**
- * Insert new file in the Application Data folder.
- *
- * @param {File} fileData File object to read data from.
- * @param {Function} callback Function to call when the request is complete.
- */
-function insertFileInApplicationDataFolder(fileData, callback) {
-  const boundary = '-------314159265358979323846';
-  const delimiter = "\r\n--" + boundary + "\r\n";
-  const close_delim = "\r\n--" + boundary + "--";
+   * Insert new file in the Application Data folder.
+   *
+   * @param {File} fileData File object to read data from.
+   * @param {Function} callback Function to call when the request is complete.
+   */
+  function insertFileInApplicationDataFolder(fileData, callback) {
+    const boundary = '-------314159265358979323846';
+    const delimiter = "\r\n--" + boundary + "\r\n";
+    const close_delim = "\r\n--" + boundary + "--";
 
-  var reader = new FileReader();
-  reader.readAsBinaryString(fileData);
-  reader.onload = function(e) {
-    var contentType = fileData.type || 'application/octet-stream';
-    var metadata = {
-      'title': fileData.fileName,
-      'mimeType': contentType,
-      'parents': [{'id': 'appfolder'}]
-    };
+    var reader = new FileReader();
+    reader.readAsBinaryString(fileData);
+    reader.onload = function(e) {
+      var contentType = fileData.type || 'application/octet-stream';
+      var metadata = {
+        'title': fileData.name,
+        'mimeType': contentType,
+        'parents': [{
+          'id': 'appfolder'
+        }]
+      };
 
-    var base64Data = btoa(reader.result);
-    var multipartRequestBody =
+      var base64Data = btoa(reader.result);
+      var multipartRequestBody =
         delimiter +
         'Content-Type: application/json\r\n\r\n' +
         JSON.stringify(metadata) +
@@ -173,205 +182,296 @@ function insertFileInApplicationDataFolder(fileData, callback) {
         base64Data +
         close_delim;
 
-    var request = gapi.client.request({
+      var request = gapi.client.request({
         'path': '/upload/drive/v2/files',
         'method': 'POST',
-        'params': {'uploadType': 'multipart'},
+        'params': {
+          'uploadType': 'multipart'
+        },
         'headers': {
           'Content-Type': 'multipart/mixed; boundary="' + boundary + '"'
         },
-        'body': multipartRequestBody});
-    if (!callback) {
-      callback = function(file) {
-        console.log(file)
-      };
-    }
-    request.execute(callback);
-  }
-}
-
-function addNewMedicalEvent(){
-   date = $("#medEventDate").val();
-   description = $("#medEventDesc").val();
-
-}
-
-function createShareRootFolder() {
-
-   var currentToken = userCred.google.accessToken;
-
-   var request = gapi.client.request({
-       'path': '/drive/v2/files/',
-       'method': 'POST',
-       'headers': {
-           'Content-Type': 'application/json',
-           'Authorization': 'Bearer ' + currentToken,
-       },
-       'body':{
-           "title" : "WolffLLC_Shared",
-           "mimeType" : "application/vnd.google-apps.folder",
-       }
-   });
-
-   request.execute(function(resp) {
-       console.log("Folder Create Attempt")
-       resp['isShared']=false;
-       db.child("users").child(userCred.uid).child("sharedFolder").set(resp);
-       insertPermission(resp.id,yourMD,'user','reader',function(resp){
-         if(resp.kind){ //success
-            db.child("users").child(userCred.uid).child("sharedFolder").child('isShared').set("true");
-         }
-         else{
-           console.error("Could not change permissions of sharedfolder")
-         }
-
-       });
-       console.log(resp);
-
-   });
-}
-
-
-/**
- * Insert a new permission.
- *
- * @param {String} fileId ID of the file to insert permission for.
- * @param {String} value User or group e-mail address, domain name or
- *                       {@code null} "default" type.
- * @param {String} type The value "user", "group", "domain" or "default".
- * @param {String} role The value "owner", "writer" or "reader".
- */
-function insertPermission(fileId, value, type, role, callback) {
-  var body = {
-    'value': value,
-    'type': type,
-    'role': role
-  };
-  var request = gapi.client.drive.permissions.insert({
-    'fileId': fileId,
-    'resource': body
-  });
-  if(callback==null){
-    callback=function(resp) { console.log(resp);};
-  }
-  request.execute(callback);
-}
-
-/**
- * List all files contained in the Application Data folder.
- *
- * @param {Function} callback Function to call when the request is complete.
- */
-function listFilesInApplicationDataFolder(callback) {
-  var retrievePageOfFiles = function(request, result) {
-    request.execute(function(resp) {
-      result = result.concat(resp.items);
-      var nextPageToken = resp.nextPageToken;
-      if (nextPageToken) {
-        request = gapi.client.drive.files.list({
-          'pageToken': nextPageToken
-        });
-        retrievePageOfFiles(request, result);
-      } else {
-        callback(result);
+        'body': multipartRequestBody
+      });
+      if (!callback) {
+        callback = function(file) {
+          console.log(file)
+        };
       }
-    });
-  }
-  var initialRequest = gapi.client.drive.files.list({
-    'q': '\'appfolder\' in parents'
-  });
-  retrievePageOfFiles(initialRequest, []);
-}
-
-
-/**
- * Print a file's metadata.
- *
- * @param {String} fileId ID of the file to print metadata for.
- */
-function printFile(fileId) {
-  var request = gapi.client.drive.files.get({
-      'fileId': fileId
-  });
-  request.execute(function(resp) {
-    if (!resp.error) {
-      console.log('Title: ' + resp.title);
-      console.log('Description: ' + resp.description);
-      console.log('MIME type: ' + resp.mimeType);
-    } else if (resp.error.code == 401) {
-      // Access token might have expired.
-      checkAuth();
-    } else {
-      console.log('An error occured: ' + resp.error.message);
+      request.execute(callback);
     }
-  });
-}
+  }
+
+  function nextMedicalEvent() {
+    date = $("#medEventDate").val();
+    description = $("#medEventDesc").val();
+    var pushRef = db.child("users").child(userCred.uid).child("medEvent").push();
+    pushRef.set({
+      'date': date,
+      'description': description
+    });
+
+    uploadFileMedHistFileShared(pushRef);
+  }
+
+  function uploadFileMedHistFileShared(eventRef) {
+    console.log("I FOUND DIS" + $("#newMedicalDoc").val());
+    thefiles = document.getElementById("newMedicalDoc").files;
+
+    for (i = 0; i < thefiles.length; i++) {
+      theFile = thefiles[i];
+      //TODO validate this is an acceptable file.
+
+      sizeinmb = parseFloat(theFile.size / 1000000).toFixed(2)
+      lastAddedElement = $("#uploadingfiles > ul").append("<li> " + theFile.name + " ( " + sizeinmb + " MB ) " + loadingSym + " </li>");
+
+      uploadFileToShareFolder(theFile, function(result) {
+          if (!(result.error)) {
+            eventRef.child("uploadedFiles").push().set(result); //Add file ID and other meta data to list of files for the given event
+            afterMedUpload(result, lastAddedElement);
+          } else {
+            console.error("Faield to upload file");
+          }
+        });
+
+      }
+    }
 
 
+    function uploadFileToShareFolder(fileData, callback) {
 
-  function authChangeResp(authData) {
-    if (authData) {
-      userCred = authData
+      const boundary = '-------314159265358979323846';
+      const delimiter = "\r\n--" + boundary + "\r\n";
+      const close_delim = "\r\n--" + boundary + "--";
 
-    //  shareRef.setOAuthToken(authData.google.accessToken); //TODO bug This can only happen once shareRef is loaded
-      gapi.auth.setToken({
-        access_token: authData.google.accessToken
+      var reader = new FileReader();
+      reader.readAsBinaryString(fileData);
+      reader.onload = function(e) {
+        var contentType = fileData.type || 'application/octet-stream';
+        var metadata = {
+          'title': fileData.name,
+          'mimeType': contentType,
+          'parents': [{
+            'id': shareFolderID
+          }]
+        };
+
+        var base64Data = btoa(reader.result);
+        var multipartRequestBody =
+          delimiter +
+          'Content-Type: application/json\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: ' + contentType + '\r\n' +
+          'Content-Transfer-Encoding: base64\r\n' +
+          '\r\n' +
+          base64Data +
+          close_delim;
+
+        var request = gapi.client.request({
+          'path': '/upload/drive/v2/files',
+          'method': 'POST',
+          'params': {
+            'uploadType': 'multipart'
+          },
+          'headers': {
+            'Content-Type': 'multipart/mixed; boundary="' + boundary + '"'
+          },
+          'body': multipartRequestBody
+        });
+        if (!callback) {
+          callback = function(file) {
+            console.log(file)
+          };
+        }
+        request.execute(callback);
+      }
+
+
+    }
+
+
+    function createShareRootFolder() {
+
+      var currentToken = userCred.google.accessToken;
+
+      var request = gapi.client.request({
+        'path': '/drive/v2/files/',
+        'method': 'POST',
+        'headers': {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + currentToken,
+        },
+        'body': {
+          "title": "WolffLLC_Shared",
+          "mimeType": "application/vnd.google-apps.folder",
+        }
       });
 
-      $(".logout").show();
-      $(".login").hide();
+      request.execute(function(resp) {
+        console.log("Folder Create Attempt")
+        resp['isShared'] = false;
+        db.child("users").child(userCred.uid).child("sharedFolder").set(resp);
+        insertPermission(resp.id, yourMD, 'user', 'owner', function(confirm) {
+          if (!confirm.error) { //success
+            db.child("users").child(userCred.uid).child("sharedFolder").child('isShared').set("true");
+            shareFolderID = resp.id;
+          } else {
+            console.error("Could not change permissions of sharedfolder")
+          }
 
-    } else {
-      changePage(C_login);
-      $(".logout").hide();
-      $(".login").show();
+        });
+        console.log(resp);
+
+      });
     }
-  }
 
-  function logout() {
-    db.unauth();
-  }
 
-//TOOD REMOVE this, we only want google authenticaiton now
-  function login() {
+    /**
+     * Insert a new permission.
+     *
+     * @param {String} fileId ID of the file to insert permission for.
+     * @param {String} value User or group e-mail address, domain name or
+     *                       {@code null} "default" type.
+     * @param {String} type The value "user", "group", "domain" or "default".
+     * @param {String} role The value "owner", "writer" or "reader".
+     */
+    function insertPermission(fileId, value, type, role, callback) {
+      var body = {
+        'value': value,
+        'type': type,
+        'role': role
+      };
+      var request = gapi.client.drive.permissions.insert({
+        'fileId': fileId,
+        'resource': body
+      });
+      if (callback == null) {
+        callback = function(resp) {
+          console.log(resp);
+        };
+      }
+      request.execute(callback);
+    }
 
-    db.authWithPassword({
-      email: document.getElementById("email").value,
-      password: document.getElementById("password").value
-    }, function(error, userData) {
-      if (error) {
-        console.log("Login Fail", error);
+    /**
+     * List all files contained in the Application Data folder.
+     *
+     * @param {Function} callback Function to call when the request is complete.
+     */
+    function listFilesInApplicationDataFolder(callback) {
+      var retrievePageOfFiles = function(request, result) {
+        request.execute(function(resp) {
+          result = result.concat(resp.items);
+          var nextPageToken = resp.nextPageToken;
+          if (nextPageToken) {
+            request = gapi.client.drive.files.list({
+              'pageToken': nextPageToken
+            });
+            retrievePageOfFiles(request, result);
+          } else {
+            callback(result);
+          }
+        });
+      }
+      var initialRequest = gapi.client.drive.files.list({
+        'q': '\'appfolder\' in parents'
+      });
+      retrievePageOfFiles(initialRequest, []);
+    }
+
+
+    /**
+     * Print a file's metadata.
+     *
+     * @param {String} fileId ID of the file to print metadata for.
+     */
+    function printFile(fileId) {
+      var request = gapi.client.drive.files.get({
+        'fileId': fileId
+      });
+      request.execute(function(resp) {
+        if (!resp.error) {
+          console.log('Title: ' + resp.title);
+          console.log('Description: ' + resp.description);
+          console.log('MIME type: ' + resp.mimeType);
+        } else if (resp.error.code == 401) {
+          // Access token might have expired.
+          checkAuth();
+        } else {
+          console.log('An error occured: ' + resp.error.message);
+        }
+      });
+    }
+
+
+
+    function authChangeResp(authData) {
+      if (authData) {
+        userCred = authData
+
+        //  shareRef.setOAuthToken(authData.google.accessToken); //TODO bug This can only happen once shareRef is loaded
+        gapi.auth.setToken({
+          access_token: authData.google.accessToken
+        });
+        db.child("users").child(userCred.uid).child("sharedFolder").child('id').once('value', function(data) {
+          shareFolderID = data.val();
+        })
+
+        $(".logout").show();
+        $(".login").hide();
 
       } else {
-        console.log("Login Success:", userData.uid);
-        changePage(C_newpatient);
-        userCred = authData;
+        changePage(C_login);
+        $(".logout").hide();
+        $(".login").show();
       }
-    });
-  }
+    }
 
-  function insertPatientData() {
+    function logout() {
+      db.unauth();
+    }
 
-    db.child("users").child(userCred.uid).child("patient").child("id").set({
-      firstname: $("#patientdataentry > input[name='firstname']").val(),
-      middlename: $("#patientdataentry > input[name='midddlename']").val(),
-      lastname: $("#patientdataentry > input[name='lastname']").val(),
-      DOB: $("#patientdataentry > input[name='DOB']").val(),
-      streetname: $("#patientdataentry > input[name='streetname']").val(),
-      streetnumber: $("#patientdataentry > input[name='streetnumber']").val(),
-      city: $("#patientdataentry > input[name='city']").val(),
-      zip: $("#patientdataentry > input[name='zip']").val(),
-      phone: $("#patientdataentry > input[name='phone']").val()
-    });
-  }
+    //TOOD REMOVE this, we only want google authenticaiton now
+    function login() {
 
-  function insertMedicalData() {
-    db.child("users").child(userCred.uid).child("patient").child("medical").set({
-      gender: $("#medicaldataentry > input[name='Gender']").val(),
-      diagnosis: $("#medicaldataentry > textarea[name='diagnosis']").val()
-    });
+      db.authWithPassword({
+        email: document.getElementById("email").value,
+        password: document.getElementById("password").value
+      }, function(error, userData) {
+        if (error) {
+          console.log("Login Fail", error);
 
-  }
+        } else {
+          console.log("Login Success:", userData.uid);
+          changePage(C_newpatient);
+          userCred = authData;
+        }
+      });
+    }
+
+    function insertPatientData() {
+
+      db.child("users").child(userCred.uid).child("patient").child("id").set({
+        firstname: $("#patientdataentry > input[name='firstname']").val(),
+        middlename: $("#patientdataentry > input[name='midddlename']").val(),
+        lastname: $("#patientdataentry > input[name='lastname']").val(),
+        DOB: $("#patientdataentry > input[name='DOB']").val(),
+        streetname: $("#patientdataentry > input[name='streetname']").val(),
+        streetnumber: $("#patientdataentry > input[name='streetnumber']").val(),
+        city: $("#patientdataentry > input[name='city']").val(),
+        zip: $("#patientdataentry > input[name='zip']").val(),
+        phone: $("#patientdataentry > input[name='phone']").val()
+      });
+    }
+
+    function insertMedicalData() {
+      db.child("users").child(userCred.uid).child("patient").child("medical").set({
+        gender: $("#medicaldataentry > input[name='Gender']").val(),
+        diagnosis: $("#medicaldataentry > textarea[name='diagnosis']").val()
+      });
+
+    }
 </script>
 <script src="https://apis.google.com/js/client.js?onload=handleClientLoad"></script>
 
@@ -504,7 +604,9 @@ function printFile(fileId) {
 
             </div>
             <div class="form-group form-inline">
-              <label>  Comment <textarea class="form-control" rows="5" placeholder="A short personal account of your wellbeing" required></textarea></label>
+              <label> Comment
+                <textarea class="form-control" rows="5" placeholder="A short personal account of your wellbeing" required></textarea>
+              </label>
             </div>
 
           </div>
@@ -513,23 +615,30 @@ function printFile(fileId) {
       </form>
 
       <div class="section" name="medicalEventsCurrentIllness" id="medicalEventsCurrentIllness">
-      <h2>History of Current Illness</h2>
-      <div class="addMedicalEvent">
-        <form name="onenewmedicalevent">
-            <label> Date <input type="text" class="form-control" id="medEventDate" name="eventdate" placeholder="dd,mm,yyyy"> </label>
-            <label> Description <textarea class="form-control" id="medEventDesc" rows="5" placeholder="What happend on this day. " required></textarea></label>
+        <h2>History of Current Illness</h2>
+        <div class="addMedicalEvent">
+          <form name="onenewmedicalevent">
+            <label> Date
+              <input type="text" class="form-control" id="medEventDate" name="eventdate" placeholder="dd,mm,yyyy"> </label>
+            <label> Description
+              <textarea class="form-control" id="medEventDesc" rows="5" placeholder="What happend on this day. " required></textarea>
+            </label>
 
 
-            <div id="uploadingfiles"><ul></ul></div>
+            <div id="uploadingfiles">
+              <ul></ul>
+            </div>
             <span class="btn btn-default btn-file">
-            Select Multiple files if needed <input type="file" size="45" name="medicalDoc" id="newMedicalDoc" >
-          </span>
+              Select Multiple files if needed
+              <input type="file" size="45" name="medicalDoc" id="newMedicalDoc">
+            </span>
 
-          <input type="button" id="finishMedicalEvent" onclick="javascript:nextMedicalEvent()"> Add Another Event<input>
+            <input type="button" id="finishMedicalEvent" onclick="javascript:nextMedicalEvent()"> Add Another Event
+            <input>
 
-        </form>
+          </form>
 
-      </div>
+        </div>
       </div>
 
       </div>
