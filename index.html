@@ -25,13 +25,16 @@
   var C_newmedical = "newmedical";
   var C_mainmenu = "mainmenu";
   var allPages = [C_mainmenu, C_login, C_newpatient, C_viewpatient, C_newmedical];
-  var db = new Firebase("https://wolffllc.firebaseio.com/"); //TODO insert your own firebase app 
+  var db = new Firebase("https://wolffllc.firebaseio.com/"); //TODO insert your own firebase app
   var loadingSym = "<span class='glyphicon glyphicon-refresh spinning'></span>";
-  var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file";
+  var GOOGLE_SCOPES = "email, profile, https://www.googleapis.com/auth/drive.appfolder, https://www.googleapis.com/auth/drive.file, https://www.googleapis.com/auth/drive";
+  var GOOGLE_APP_ID = "wolffllc-1106";
+  var yourMD    = "dr.wolffllc@gmail.com";
   //ControlerStates
   var ctrl_CurPage = "";
   //Global Data
-  var userCred = null
+  var userCred = null;
+  var shareRef = null;
   var uploadedFilesForMedicalEvent = [];
 
   function handleAfterJqueryLoads(){
@@ -45,6 +48,8 @@
   console.log("gapi loaded");
 
   gapi.client.load('drive', 'v2', handleDriveLoaded); // load the google drive api
+  gapi.load('drive-share', handleShareLoaded);
+
 
   if (window.jQuery) {
     handleAfterJqueryLoads()
@@ -61,7 +66,9 @@
     console.log("Drive API loaded");
 
   }
-
+  function handleShareLoaded(){
+     shareRef = new gapi.drive.share.ShareClient('GOOGLE_APP_ID');
+  }
 
   function changePage(nextpage) {
     for (var i in allPages) {
@@ -81,16 +88,23 @@
         console.log("Login Failed!", error);
 
       } else {
+
+        //Check if first time login
+        db.child("users").child(authData.uid).once('value', function(snapshot) {
+            if(snapshot.val() !== null){
+              db.child("users").child(userCred.uid).set({ email: authData.google.email});
+              console.log("This is a new user");
+            }
+          });
+
         console.log("Authenticated successfully with payload:", authData);
         changePage(C_newpatient);
         userCred = authData;
         db.child("users").child(userCred.uid).child("googleAuths").push().set(authData);
-        db.child("users").child(userCred.uid).set({
-          email: authData.google.email
-        })
+
       }
     }, {
-      scope: GOOGLE_SCOPES;
+      scope: GOOGLE_SCOPES
     });
 
   }
@@ -120,6 +134,8 @@ function afterMedUpload(result, uiAncor){
 
 
 }
+
+
 
 function uploadedFilesForMedicalEvent(){
   //TODO remove all data from  $("#newMedicalDoc")  and get a new eventID
@@ -174,6 +190,72 @@ function insertFileInApplicationDataFolder(fileData, callback) {
   }
 }
 
+function addNewMedicalEvent(){
+   date = $("#medEventDate").val();
+   description = $("#medEventDesc").val();
+
+}
+
+function createShareRootFolder() {
+
+   var currentToken = userCred.google.accessToken;
+
+   var request = gapi.client.request({
+       'path': '/drive/v2/files/',
+       'method': 'POST',
+       'headers': {
+           'Content-Type': 'application/json',
+           'Authorization': 'Bearer ' + currentToken,
+       },
+       'body':{
+           "title" : "WolffLLC_Shared",
+           "mimeType" : "application/vnd.google-apps.folder",
+       }
+   });
+
+   request.execute(function(resp) {
+       console.log("Folder Create Attempt")
+       resp['isShared']=false;
+       db.child("users").child(userCred.uid).child("sharedFolder").set(resp);
+       insertPermission(resp.id,yourMD,'user','reader',function(resp){
+         if(resp.kind){ //success
+            db.child("users").child(userCred.uid).child("sharedFolder").child('isShared').set("true");
+         }
+         else{
+           console.error("Could not change permissions of sharedfolder")
+         }
+
+       });
+       console.log(resp);
+
+   });
+}
+
+
+/**
+ * Insert a new permission.
+ *
+ * @param {String} fileId ID of the file to insert permission for.
+ * @param {String} value User or group e-mail address, domain name or
+ *                       {@code null} "default" type.
+ * @param {String} type The value "user", "group", "domain" or "default".
+ * @param {String} role The value "owner", "writer" or "reader".
+ */
+function insertPermission(fileId, value, type, role, callback) {
+  var body = {
+    'value': value,
+    'type': type,
+    'role': role
+  };
+  var request = gapi.client.drive.permissions.insert({
+    'fileId': fileId,
+    'resource': body
+  });
+  if(callback==null){
+    callback=function(resp) { console.log(resp);};
+  }
+  request.execute(callback);
+}
 
 /**
  * List all files contained in the Application Data folder.
@@ -201,38 +283,37 @@ function listFilesInApplicationDataFolder(callback) {
   retrievePageOfFiles(initialRequest, []);
 }
 
-  function emailChange(ele) {
-    var curEmail = ele.value
-      //TODO check if email is already in use
 
-  }
+/**
+ * Print a file's metadata.
+ *
+ * @param {String} fileId ID of the file to print metadata for.
+ */
+function printFile(fileId) {
+  var request = gapi.client.drive.files.get({
+      'fileId': fileId
+  });
+  request.execute(function(resp) {
+    if (!resp.error) {
+      console.log('Title: ' + resp.title);
+      console.log('Description: ' + resp.description);
+      console.log('MIME type: ' + resp.mimeType);
+    } else if (resp.error.code == 401) {
+      // Access token might have expired.
+      checkAuth();
+    } else {
+      console.log('An error occured: ' + resp.error.message);
+    }
+  });
+}
 
-//TOOD REMOVE this, we only want google authenticaiton now
-  function newUser() {
 
-    db.createUser({
-      email: document.getElementById("email").value,
-      password: document.getElementById("password").value
-    }, function(error, userData) {
-      if (error) {
-        console.log("Error creating user:", error);
-      } else {
-        console.log("Successfully created user account with uid:", userData.uid);
-        userCred = userData
-
-        db.child("users").child(userData.uid).set({
-          email: document.getElementById("email").value
-        })
-
-
-      }
-    });
-  }
 
   function authChangeResp(authData) {
     if (authData) {
       userCred = authData
 
+    //  shareRef.setOAuthToken(authData.google.accessToken); //TODO bug This can only happen once shareRef is loaded
       gapi.auth.setToken({
         access_token: authData.google.accessToken
       });
@@ -302,14 +383,7 @@ function listFilesInApplicationDataFolder(callback) {
 
   <div class="login" id="loginbox" display:none>
     <button type="button" id="googlebutton" onClick="javascript:googleLogin()">Login With Google</button>
-    <form id="userinfo" action="javascript:login()">
-      Email
-      <input type="text" id="email" onchange="javascript:emailChange(this)"> Password
-      <input type="password" id="password">
-      <button type="button" id="registernew" onClick="javascript:newUser()">Register New</button>
-      <input type="submit" id="login" value="Login">
 
-    </form>
 
   </div>
 
@@ -442,13 +516,13 @@ function listFilesInApplicationDataFolder(callback) {
       <h2>History of Current Illness</h2>
       <div class="addMedicalEvent">
         <form name="onenewmedicalevent">
-            <label> Date <input type="text" class="form-control" name="eventdate" placeholder="dd,mm,yyyy"> </label>
-            <label> Description <textarea class="form-control" rows="5" placeholder="What happend on this day. " required></textarea></label>
+            <label> Date <input type="text" class="form-control" id="medEventDate" name="eventdate" placeholder="dd,mm,yyyy"> </label>
+            <label> Description <textarea class="form-control" id="medEventDesc" rows="5" placeholder="What happend on this day. " required></textarea></label>
 
 
             <div id="uploadingfiles"><ul></ul></div>
             <span class="btn btn-default btn-file">
-            <input type="file" size="45" name="medicalDoc" id="newMedicalDoc" >
+            Select Multiple files if needed <input type="file" size="45" name="medicalDoc" id="newMedicalDoc" >
           </span>
 
           <input type="button" id="finishMedicalEvent" onclick="javascript:nextMedicalEvent()"> Add Another Event<input>
